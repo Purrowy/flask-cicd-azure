@@ -25,10 +25,20 @@ def add_location():
     lat = data.get('lat')
     lng = data.get('lng')
     address = data.get('address', 'Unknown')
+    city = data.get('city', 'Unknown')
+    place_name = data.get('placeName', 'Unknown')
+
     if lat is not None and lng is not None:
-        locations.append({'lat': lat, 'lng': lng, 'address': address})
+        locations.append({
+            'lat': lat,
+            'lng': lng,
+            'address': address,
+            'city': city,
+            'placeName': place_name
+        })
         return jsonify({'status': 'success', 'locations': locations})
     return jsonify({'status': 'error'}), 400
+
 
 @app.route('/get_locations', methods=['GET'])
 def get_locations():
