@@ -1,12 +1,109 @@
 <!DOCTYPE html>
 <html>
-<head><title>flask-test</title></head>
+<head><title>flask-test</title>
+    <script>
+        const apiKey = "{{ api_key }}";
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}"></script></head>
 <body>
     <h1>flask-test</h1>
+    <div id="map" style="height: 500px; width: 100%;"></div>
+    <h3>Saved Locations</h3>
+<table border="1" cellpadding="8">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Address</th>
+            <th>Latitude</th>
+            <th>Longitude</th>
+        </tr>
+    </thead>
+    <tbody id="location-table-body">
+        <!-- Filled by JS -->
+    </tbody>
+</table>
+
     <form action="/submit" method="post">
         <input type="text" name="name" placeholder="name" required>
         <input type="text" name="age" placeholder="age" required>
         <button id="submit">Submit</button>
     </form>
+    <script>
+        let map;
+    
+        function initMap() {
+            map = new google.maps.Map(document.getElementById("map"), {
+                center: { lat: 0, lng: 0 },
+                zoom: 2,
+            });
+    
+            const geocoder = new google.maps.Geocoder();
+    
+            map.addListener("click", (event) => {
+                const lat = event.latLng.lat();
+                const lng = event.latLng.lng();
+    
+                // Do reverse geocoding
+                geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+                    if (status === "OK" && results[0]) {
+                        const placeName = results[0].formatted_address;
+    
+                        // Place marker
+                        new google.maps.Marker({
+                            position: { lat, lng },
+                            map: map,
+                        });
+    
+                        // Send to backend
+                        fetch('/add_location', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                lat,
+                                lng,
+                                address: placeName
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => updateTable(data.locations));
+                    }
+                });
+            });
+    
+            // Load existing pins on page load
+            fetch('/get_locations')
+                .then(response => response.json())
+                .then(data => {
+                    data.forEach(loc => {
+                        new google.maps.Marker({
+                            position: { lat: loc.lat, lng: loc.lng },
+                            map: map,
+                        });
+                    });
+                    updateTable(data);
+                });
+        }
+    
+        // Function to update the table
+        function updateTable(locations) {
+            const tbody = document.getElementById("location-table-body");
+            tbody.innerHTML = "";
+            locations.forEach((loc, index) => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${loc.address}</td>
+                    <td>${loc.lat.toFixed(5)}</td>
+                    <td>${loc.lng.toFixed(5)}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+    
+        window.onload = initMap;
+    </script>
+    
 </body>
 </html>
