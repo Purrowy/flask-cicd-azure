@@ -2,11 +2,21 @@
 <html>
 <head>
   <title>Google Maps Pins</title>
+  
+  <!-- DataTables CSS -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+
+  <!-- jQuery + DataTables JS -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
   <script src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}"></script>
   <style>
     #map { height: 500px; width: 100%; }
     table { width: 100%; margin-top: 20px; border-collapse: collapse; }
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    .editable-comment { cursor: pointer; }
+    .editable-comment:hover { background: #f0f0f0; }
   </style>
 </head>
 <body>
@@ -14,27 +24,40 @@
   <div id="map"></div>
 
   <h2>Pinned Locations</h2>
-  <table id="locationsTable">
+  <table id="locationsTable" class="display">
     <thead>
-        <tr>
-          <th>#</th>
-          <th>Name</th>
-          <th>City</th>
-          <th>Address</th>
-        </tr>
-      </thead>
-      
-    <tbody></tbody>
+      <tr>
+        <th>#</th>
+        <th>Name</th>
+        <th>City</th>
+        <th>Address</th>
+        <th>Comments</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- dynamically inserted rows -->
+    </tbody>
   </table>
 
   <script>
     let map;
     let markers = [];
+    let dataTable;
 
     function initMap() {
       map = new google.maps.Map(document.getElementById('map'), {
         zoom: 3,
         center: { lat: 0, lng: 0 }
+      });
+
+      // Initialize DataTable
+      dataTable = $('#locationsTable').DataTable({
+        paging: false,
+        info: false,
+        columnDefs: [
+          { targets: [4], className: 'editable-comment' }
+        ]
       });
 
       // Load existing pins
@@ -47,44 +70,83 @@
           });
         });
 
-      // Add pin on click
+      // Add pin click handler
       map.addListener("click", (e) => {
-  const lat = e.latLng.lat();
-  const lng = e.latLng.lng();
+        const lat = e.latLng.lat();
+        const lng = e.latLng.lng();
 
-  fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key={{ api_key }}`)
-    .then(response => response.json())
-    .then(data => {
-      const result = data.results[0];
-      const address = result?.formatted_address || "Unknown location";
-      const components = result?.address_components || [];
+        fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key={{ api_key }}`)
+          .then(response => response.json())
+          .then(data => {
+            const result = data.results[0];
+            const address = result?.formatted_address || "Unknown location";
+            const components = result?.address_components || [];
 
-      // Try to find city and place name
-      let city = "Unknown";
-      let placeName = result?.name || result?.address_components[0]?.long_name || "Unknown";
+            let city = "Unknown";
+            let placeName = result?.name || address.split(',')[0];
 
-      components.forEach(comp => {
-        if (comp.types.includes("locality")) {
-          city = comp.long_name;
-        }
+            components.forEach(comp => {
+              if (comp.types.includes("locality")) {
+                city = comp.long_name;
+              }
+            });
+
+            fetch('/add_location', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                lat, 
+                lng, 
+                address, 
+                city, 
+                placeName,
+                comments: "" 
+              })
+            })
+            .then(res => res.json())
+            .then(data => {
+              if (data.status === 'success') {
+                const index = data.locations.length;
+                addMarker({ lat, lng, address, city, placeName }, index);
+                addToTable({ lat, lng, address, city, placeName, comments: "" }, index);
+              }
+            });
+          });
       });
 
-      fetch('/add_location', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lat, lng, address, city, placeName })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (data.status === 'success') {
-          const index = data.locations.length;
-          addMarker({ lat, lng, address, city, placeName }, index);
-          addToTable({ lat, lng, address, city, placeName }, index);
-        }
-      });
-    });
-});
+      // Comment editing handler
+      $('#locationsTable tbody').on('click', '.editable-comment', function() {
+        const cell = $(this);
+        const row = dataTable.row(cell.closest('tr'));
+        const rowData = row.data();
+        
+        const input = $('<input type="text">')
+          .val(rowData.comments)
+          .css('width', cell.width());
+        
+        cell.html(input);
+        input.focus();
 
+        const saveComment = () => {
+          const newComment = input.val();
+          dataTable.cell(cell).data(newComment).draw();
+          
+          fetch('/update_comment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              lat: rowData.lat,
+              lng: rowData.lng,
+              comment: newComment
+            })
+          });
+        };
+
+        input.on('blur', saveComment);
+        input.on('keypress', function(e) {
+          if (e.which === 13) saveComment();
+        });
+      });
     }
 
     function addMarker(location, index) {
@@ -97,21 +159,36 @@
     }
 
     function addToTable(location, index) {
-  const row = document.createElement('tr');
-  row.innerHTML = `
-    <td>${index}</td>
-    <td><a href="#" onclick="zoomTo(${location.lat}, ${location.lng}); return false;">${location.placeName}</a></td>
-    <td>${location.city}</td>
-    <td>${location.address}</td>
-  `;
-  document.querySelector('#locationsTable tbody').appendChild(row);
-}
+      dataTable.row.add({
+        0: index,
+        1: `<a href="#" onclick="zoomTo(${location.lat}, ${location.lng}); return false;">${location.placeName}</a>`,
+        2: location.city,
+        3: location.address,
+        4: location.comments || '',
+        5: `<button onclick="removeLocation(${location.lat}, ${location.lng}, this)">Remove</button>`,
+        lat: location.lat,
+        lng: location.lng,
+        comments: location.comments
+      }).draw();
+    }
 
+    function removeLocation(lat, lng, button) {
+      fetch('/remove_location', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lat, lng })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === 'success') {
+          dataTable.row($(button).closest('tr')).remove().draw();
+        }
+      });
+    }
 
     function zoomTo(lat, lng) {
-      const latLng = new google.maps.LatLng(lat, lng);
       map.setZoom(15);
-      map.panTo(latLng);
+      map.panTo(new google.maps.LatLng(lat, lng));
     }
 
     window.onload = initMap;

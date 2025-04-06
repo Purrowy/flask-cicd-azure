@@ -44,5 +44,21 @@ def add_location():
 def get_locations():
     return jsonify(locations)
 
+@app.route('/remove_location', methods=['POST'])
+def remove_location():
+    data = request.get_json()
+    lat = data.get('lat')
+    lng = data.get('lng')
+
+    global locations
+    before = len(locations)
+    locations = [loc for loc in locations if loc['lat'] != lat or loc['lng'] != lng]
+    after = len(locations)
+
+    if before > after:
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'not found'}), 404
+
+
 if __name__ == '__main__':
     app.run(debug=True)
