@@ -25,14 +25,40 @@ def add_location():
     lat = data.get('lat')
     lng = data.get('lng')
     address = data.get('address', 'Unknown')
+    city = data.get('city', 'Unknown')
+    place_name = data.get('placeName', 'Unknown')
+
     if lat is not None and lng is not None:
-        locations.append({'lat': lat, 'lng': lng, 'address': address})
+        locations.append({
+            'lat': lat,
+            'lng': lng,
+            'address': address,
+            'city': city,
+            'placeName': place_name
+        })
         return jsonify({'status': 'success', 'locations': locations})
     return jsonify({'status': 'error'}), 400
+
 
 @app.route('/get_locations', methods=['GET'])
 def get_locations():
     return jsonify(locations)
+
+@app.route('/remove_location', methods=['POST'])
+def remove_location():
+    data = request.get_json()
+    lat = data.get('lat')
+    lng = data.get('lng')
+
+    global locations
+    before = len(locations)
+    locations = [loc for loc in locations if loc['lat'] != lat or loc['lng'] != lng]
+    after = len(locations)
+
+    if before > after:
+        return jsonify({'status': 'success'})
+    return jsonify({'status': 'not found'}), 404
+
 
 if __name__ == '__main__':
     app.run(debug=True)
