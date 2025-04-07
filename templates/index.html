@@ -17,6 +17,59 @@
     th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
     .editable-comment { cursor: pointer; }
     .editable-comment:hover { background: #f0f0f0; }
+    
+    /* Color picker modal styles */
+    .color-picker-modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.4);
+    }
+    
+    .color-picker-content {
+      background-color: white;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 300px;
+      border-radius: 5px;
+      box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
+    }
+    
+    .color-option {
+      display: inline-block;
+      width: 30px;
+      height: 30px;
+      margin: 5px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid #ddd;
+    }
+    
+    .color-option:hover {
+      border: 2px solid #333;
+    }
+    
+    .close-color-picker {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .close-color-picker:hover {
+      color: black;
+    }
+    
+    .button-container {
+      display: flex;
+      gap: 5px;
+    }
   </style>
 </head>
 <body>
@@ -39,11 +92,30 @@
       <!-- dynamically inserted rows -->
     </tbody>
   </table>
+  
+  <!-- Color Picker Modal -->
+  <div id="colorPickerModal" class="color-picker-modal">
+    <div class="color-picker-content">
+      <span class="close-color-picker">&times;</span>
+      <h3>Select Marker Color</h3>
+      <div id="colorOptions">
+        <div class="color-option" style="background-color: red;" data-color="red"></div>
+        <div class="color-option" style="background-color: blue;" data-color="blue"></div>
+        <div class="color-option" style="background-color: green;" data-color="green"></div>
+        <div class="color-option" style="background-color: yellow;" data-color="yellow"></div>
+        <div class="color-option" style="background-color: purple;" data-color="purple"></div>
+        <div class="color-option" style="background-color: orange;" data-color="orange"></div>
+        <div class="color-option" style="background-color: pink;" data-color="pink"></div>
+        <div class="color-option" style="background-color: black;" data-color="black"></div>
+      </div>
+    </div>
+  </div>
 
   <script>
     let map;
     let markers = [];
     let dataTable;
+    let currentMarkerForColor = null;
 
     function initMap() {
       map = new google.maps.Map(document.getElementById('map'), {
@@ -100,15 +172,16 @@
                 address, 
                 city, 
                 placeName,
-                comments: "" 
+                comments: "",
+                color: "red" // Default color
               })
             })
             .then(res => res.json())
             .then(data => {
               if (data.status === 'success') {
                 const index = data.locations.length;
-                addMarker({ lat, lng, address, city, placeName }, index);
-                addToTable({ lat, lng, address, city, placeName, comments: "" }, index);
+                addMarker({ lat, lng, address, city, placeName, color: "red" }, index);
+                addToTable({ lat, lng, address, city, placeName, comments: "", color: "red" }, index);
               }
             });
           });
@@ -147,15 +220,54 @@
           if (e.which === 13) saveComment();
         });
       });
+      
+      // Color picker modal setup
+      const modal = document.getElementById("colorPickerModal");
+      const span = document.getElementsByClassName("close-color-picker")[0];
+      
+      // Close modal when clicking X
+      span.onclick = function() {
+        modal.style.display = "none";
+      }
+      
+      // Close modal when clicking outside
+      window.onclick = function(event) {
+        if (event.target == modal) {
+          modal.style.display = "none";
+        }
+      }
+      
+      // Color selection
+      document.querySelectorAll('.color-option').forEach(option => {
+        option.addEventListener('click', function() {
+          const color = this.getAttribute('data-color');
+          if (currentMarkerForColor) {
+            changeMarkerColor(currentMarkerForColor.lat, currentMarkerForColor.lng, color);
+            modal.style.display = "none";
+          }
+        });
+      });
     }
 
     function addMarker(location, index) {
+      const markerColor = location.color || 'red';
       const marker = new google.maps.Marker({
         position: { lat: parseFloat(location.lat), lng: parseFloat(location.lng) },
         map: map,
-        title: location.address
+        title: location.address,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: markerColor,
+          fillOpacity: 1,
+          strokeColor: 'white',
+          strokeWeight: 2,
+          scale: 10
+        }
       });
-      markers.push(marker);
+      
+      // Store marker reference with location data
+      location.marker = marker;
+      markers.push(location);
     }
 
     function addToTable(location, index) {
@@ -165,10 +277,14 @@
         2: location.city,
         3: location.address,
         4: location.comments || '',
-        5: `<button onclick="removeLocation(${location.lat}, ${location.lng}, this)">Remove</button>`,
+        5: `<div class="button-container">
+              <button onclick="removeLocation(${location.lat}, ${location.lng}, this)">Remove</button>
+              <button onclick="openColorPicker(${location.lat}, ${location.lng})">Color</button>
+            </div>`,
         lat: location.lat,
         lng: location.lng,
-        comments: location.comments
+        comments: location.comments,
+        color: location.color || 'red'
       }).draw();
     }
 
@@ -181,6 +297,19 @@
       .then(res => res.json())
       .then(data => {
         if (data.status === 'success') {
+          // Remove from markers array
+          const markerIndex = markers.findIndex(m => 
+            m.lat === lat && m.lng === lng
+          );
+          
+          if (markerIndex !== -1) {
+            // Remove marker from map
+            markers[markerIndex].marker.setMap(null);
+            // Remove from array
+            markers.splice(markerIndex, 1);
+          }
+          
+          // Remove from table
           dataTable.row($(button).closest('tr')).remove().draw();
         }
       });
@@ -189,6 +318,46 @@
     function zoomTo(lat, lng) {
       map.setZoom(15);
       map.panTo(new google.maps.LatLng(lat, lng));
+    }
+    
+    function openColorPicker(lat, lng) {
+      // Find the marker in our array
+      const marker = markers.find(m => m.lat === lat && m.lng === lng);
+      if (marker) {
+        currentMarkerForColor = marker;
+        document.getElementById('colorPickerModal').style.display = 'block';
+      }
+    }
+    
+    function changeMarkerColor(lat, lng, color) {
+      // Find the marker
+      const markerIndex = markers.findIndex(m => m.lat === lat && m.lng === lng);
+      
+      if (markerIndex !== -1) {
+        // Update marker icon color
+        markers[markerIndex].marker.setIcon({
+          path: google.maps.SymbolPath.CIRCLE,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: 'white',
+          strokeWeight: 2,
+          scale: 10
+        });
+        
+        // Update color in our data
+        markers[markerIndex].color = color;
+        
+        // Update on server
+        fetch('/update_marker_color', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lat: lat,
+            lng: lng,
+            color: color
+          })
+        });
+      }
     }
 
     window.onload = initMap;
